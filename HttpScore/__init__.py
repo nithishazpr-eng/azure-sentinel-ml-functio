@@ -1,11 +1,14 @@
+import logging
 import azure.functions as func
 import json
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
+    logging.info("Python HTTP trigger function processed a request.")
+
     try:
         body = req.get_json()
-    except:
-        body = {}
+    except ValueError:
+        body = {"note": "No JSON body received"}
 
     return func.HttpResponse(
         json.dumps({"ok": True, "received": body}),
