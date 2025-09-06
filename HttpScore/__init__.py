@@ -1,59 +1,33 @@
-import logging
-import json
+import os, json, logging
 import azure.functions as func
-import joblib
-import pandas as pd
-import os
 
-# Load model once on cold start
-MODEL = None
-MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "models", "incident_classifier.pkl")
-
-try:
-    MODEL = joblib.load(MODEL_PATH)
-    logging.info("  Model loaded successfully")
-except Exception as e:
-    logging.error(f"  Failed to load model: {e}")
+INFO = {}
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
-    logging.info(" HttpScore function triggered")
-
-    if MODEL is None:
-        return func.HttpResponse(
-            json.dumps({"error": "Model not loaded on server"}),
-            status_code=500,
-            mimetype="application/json"
-        )
-
     try:
-        # Read JSON body
-        body = req.get_json()
-        logging.info(f"  Input received: {body}")
+        base = os.path.dirname(__file__)  # .../site/wwwroot/HttpScore
+        model_path = os.path.abspath(os.path.join(base, "..", "models", "incident_classifier.pkl"))
+        INFO["cwd"] = os.getcwd()
+        INFO["__file__"] = __file__
+        INFO["model_path"] = model_path
+        INFO["model_exists"] = os.path.exists(model_path)
 
-        # Convert to DataFrame (expects dict or list of dicts)
-        if isinstance(body, dict):
-            df = pd.DataFrame([body])
+        # try loading with joblib only if file exists
+        if INFO["model_exists"]:
+            try:
+                import joblib
+                m = joblib.load(model_path)
+                INFO["model_loaded"] = True
+                INFO["model_type"] = str(type(m))
+            except Exception as e:
+                INFO["model_loaded"] = False
+                INFO["load_error"] = f"{type(e).__name__}: {e}"
         else:
-            df = pd.DataFrame(body)
+            INFO["model_loaded"] = False
+            INFO["load_error"] = "Model file not found"
 
-        # Run prediction
-        prediction = MODEL.predict(df)
-        logging.info(f"  Prediction: {prediction.tolist()}")
-
-        return func.HttpResponse(
-            json.dumps({
-                "ok": True,
-                "prediction": prediction.tolist(),
-                "input": body
-            }),
-            status_code=200,
-            mimetype="application/json"
-        )
+        return func.HttpResponse(json.dumps(INFO), status_code=200, mimetype="application/json")
 
     except Exception as e:
-        logging.error(f" Error while scoring: {e}")
-        return func.HttpResponse(
-            json.dumps({"error": str(e)}),
-            status_code=500,
-            mimetype="application/json"
-        )
+        return func.HttpResponse(json.dumps({"fatal": f"{type(e).__name__}: {e}", "debug": INFO}),
+                                 status_code=500, mimetype="application/json")
